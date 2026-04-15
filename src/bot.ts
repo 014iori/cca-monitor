@@ -149,23 +149,38 @@ function buildEmbed(result: Awaited<ReturnType<typeof findAuction>> & {}, addres
   const { info, chainConfig } = result!;
   const explorer = chainConfig.blockExplorer;
 
+  // FDV = clearingPrice (Q96) * tokenTotalSupply / (2^96 * 10^currencyDecimals)
+  const Q96 = 2n ** 96n;
+  const fdvRaw = info.clearingPrice * info.tokenTotalSupply / Q96;
+  const fdv = fmt(fdvRaw, info.currencyDecimals, 2);
+
+  // Bid concentrated at = clearingPrice (Q96) per token, adjusted for decimals
+  const pricePerToken = info.clearingPrice * BigInt(10 ** info.tokenDecimals) / Q96;
+  const bidAt = fmt(pricePerToken, info.currencyDecimals, 6);
+
+  // Days left
+  const blocksLeft = Math.max(0, Number(info.endBlock) - info.currentBlock);
+  const secsLeft = blocksLeft * info.blockTime;
+  const daysLeft = Math.floor(secsLeft / 86400);
+  const hoursLeft = Math.floor((secsLeft % 86400) / 3600);
+  const daysLeftStr = daysLeft > 0
+    ? (hoursLeft > 0 ? `${daysLeft}d ${hoursLeft}h` : `${daysLeft}d`)
+    : `${hoursLeft}h`;
+
   return new EmbedBuilder()
-    .setTitle(`$${info.symbol} — ${info.name}`)
-    .setURL(UNISWAP_AUCTIONS_URL)
+    .setTitle(`$${info.symbol}`)
+    .setURL(`${UNISWAP_AUCTIONS_URL}`)
     .setColor(ORANGE)
     .addFields(
-      { name: '🔗 Chain', value: chainConfig.name, inline: true },
-      { name: '💰 Token', value: `[$${info.symbol}](${explorer}/address/${info.tokenAddress})`, inline: true },
-      { name: '💵 Currency', value: info.currencySymbol, inline: true },
-      { name: '📦 Supply', value: `${fmt(info.amount, info.tokenDecimals, 0)} ${info.symbol}`, inline: true },
-      { name: '🏷️ Floor Price', value: `${fmt(info.floorPrice, info.currencyDecimals, 6)} ${info.currencySymbol}`, inline: true },
-      { name: '⏰ Duration', value: info.duration, inline: true },
-      { name: '🎓 Graduation', value: `${fmt(info.requiredRaise, info.currencyDecimals, 2)} ${info.currencySymbol}`, inline: true },
-      {
-        name: '🔗 Links',
-        value: `[View Auction](${UNISWAP_AUCTIONS_URL}) • [Contract](${explorer}/address/${address})`,
-        inline: false,
-      },
+      { name: '⛓️ Chain', value: chainConfig.name, inline: true },
+      { name: '📈 Current FDV', value: `${fdv} ${info.currencySymbol}`, inline: true },
+      { name: '💰 Committed Volume', value: `${fmt(info.currencyRaised, info.currencyDecimals, 2)} ${info.currencySymbol}`, inline: true },
+      { name: '🎯 Bid Concentrated At', value: `${bidAt} ${info.currencySymbol}`, inline: true },
+      { name: '🪙 Auction Supply', value: `${fmt(info.auctionSupply, info.tokenDecimals, 0)} ${info.symbol}`, inline: true },
+      { name: '📊 Total Supply', value: `${fmt(info.tokenTotalSupply, info.tokenDecimals, 0)} ${info.symbol}`, inline: true },
+      { name: '💧 Committed to LP', value: `${fmt(info.currencyRaised, info.currencyDecimals, 2)} ${info.currencySymbol}`, inline: true },
+      { name: '⏳ Days Left', value: daysLeftStr, inline: true },
+      { name: '📄 Contract', value: `[${address.slice(0, 6)}...${address.slice(-4)}](${explorer}/address/${address})`, inline: true },
     )
     .setFooter({ text: 'Uniswap CCA Monitor' })
     .setTimestamp();
@@ -193,10 +208,19 @@ function sleep(ms: number): Promise<void> {
 }
 
 interface AuctionData {
-  name: string; symbol: string; tokenAddress: string; tokenDecimals: number;
-  currencySymbol: string; currencyDecimals: number;
-  amount: bigint; floorPrice: bigint; requiredRaise: bigint;
-  duration: string; txHash: string;
+  symbol: string;
+  tokenAddress: string;
+  tokenDecimals: number;
+  tokenTotalSupply: bigint;       // ERC20 total supply
+  auctionSupply: bigint;          // tokens being auctioned
+  currencySymbol: string;
+  currencyDecimals: number;
+  clearingPrice: bigint;          // Q96 fixed-point
+  currencyRaised: bigint;
+  requiredRaise: bigint;
+  endBlock: bigint;
+  currentBlock: number;
+  blockTime: number;
 }
 
 // Read auction data directly from the contract — no log scanning needed
@@ -206,7 +230,6 @@ async function findAuction(
   for (const [, config] of Object.entries(CHAINS)) {
     const provider = new ethers.JsonRpcProvider(config.rpc);
 
-    // Check contract is deployed on this chain
     try {
       const code = await provider.getCode(address);
       if (code === '0x') continue;
@@ -215,24 +238,25 @@ async function findAuction(
     try {
       const auction = new ethers.Contract(address, CCA_AUCTION_ABI, provider);
 
-      const [tokenAddress, currency, totalSupply, startBlock, endBlock, floorPrice, requiredRaise] =
+      const [tokenAddress, currency, auctionSupply, endBlock, clearingPrice, currencyRaised, requiredRaise, currentBlock] =
         await Promise.all([
           auction.token().catch(() => null),
           auction.currency().catch(() => ethers.ZeroAddress),
           auction.totalSupply().catch(() => 0n),
-          auction.startBlock().catch(() => 0n),
           auction.endBlock().catch(() => 0n),
-          auction.floorPrice().catch(() => 0n),
+          auction.clearingPrice().catch(() => 0n),
+          auction.currencyRaised().catch(() => 0n),
           auction.requiredCurrencyRaised().catch(() => 0n),
+          provider.getBlockNumber(),
         ]);
 
       if (!tokenAddress || !ethers.isAddress(tokenAddress)) continue;
 
       const token = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
-      const [name, symbol, tokenDecimals] = await Promise.all([
-        token.name().catch(() => 'Unknown'),
+      const [symbol, tokenDecimals, tokenTotalSupply] = await Promise.all([
         token.symbol().catch(() => '???'),
         token.decimals().catch(() => 18),
+        token.totalSupply().catch(() => 0n),
       ]);
 
       const isNative = !currency || currency === ethers.ZeroAddress;
@@ -249,21 +273,20 @@ async function findAuction(
         }
       }
 
-      const blockDiff = Number(endBlock - startBlock);
-      const seconds = blockDiff * config.blockTime;
-      const days = Math.floor(seconds / 86400);
-      const hours = Math.floor((seconds % 86400) / 3600);
-      const duration = days > 0 ? (hours > 0 ? `~${days}d ${hours}h` : `~${days}d`) : `~${hours}h`;
-
       return {
         info: {
-          name, symbol,
+          symbol,
           tokenAddress: ethers.getAddress(tokenAddress),
           tokenDecimals: Number(tokenDecimals),
+          tokenTotalSupply,
+          auctionSupply,
           currencySymbol, currencyDecimals,
-          amount: totalSupply,
-          floorPrice, requiredRaise, duration,
-          txHash: '',
+          clearingPrice,
+          currencyRaised,
+          requiredRaise,
+          endBlock,
+          currentBlock,
+          blockTime: config.blockTime,
         },
         chainConfig: config,
       };

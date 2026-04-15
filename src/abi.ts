@@ -59,33 +59,22 @@ export const AUCTION_PARAMETERS_ABI_TYPES = [
 export const CCA_AUCTION_ABI = [
   { type: 'function', name: 'token', inputs: [], outputs: [{ type: 'address' }], stateMutability: 'view' },
   { type: 'function', name: 'currency', inputs: [], outputs: [{ type: 'address' }], stateMutability: 'view' },
-  { type: 'function', name: 'totalSupply', inputs: [], outputs: [{ type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'totalSupply', inputs: [], outputs: [{ type: 'uint128' }], stateMutability: 'view' },
   { type: 'function', name: 'startBlock', inputs: [], outputs: [{ type: 'uint64' }], stateMutability: 'view' },
   { type: 'function', name: 'endBlock', inputs: [], outputs: [{ type: 'uint64' }], stateMutability: 'view' },
   { type: 'function', name: 'floorPrice', inputs: [], outputs: [{ type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'requiredCurrencyRaised', inputs: [], outputs: [{ type: 'uint128' }], stateMutability: 'view' },
+  // Q96 fixed-point clearing price (currency per token × 2^96)
+  { type: 'function', name: 'clearingPrice', inputs: [], outputs: [{ type: 'uint256' }], stateMutability: 'view' },
+  // Total currency committed so far (human-readable)
+  { type: 'function', name: 'currencyRaised', inputs: [], outputs: [{ type: 'uint256' }], stateMutability: 'view' },
+  // Total tokens cleared/sold so far
+  { type: 'function', name: 'totalCleared', inputs: [], outputs: [{ type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
 export const ERC20_ABI = [
-  {
-    type: 'function',
-    name: 'name',
-    inputs: [],
-    outputs: [{ type: 'string' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'symbol',
-    inputs: [],
-    outputs: [{ type: 'string' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'decimals',
-    inputs: [],
-    outputs: [{ type: 'uint8' }],
-    stateMutability: 'view',
-  },
+  { type: 'function', name: 'name', inputs: [], outputs: [{ type: 'string' }], stateMutability: 'view' },
+  { type: 'function', name: 'symbol', inputs: [], outputs: [{ type: 'string' }], stateMutability: 'view' },
+  { type: 'function', name: 'decimals', inputs: [], outputs: [{ type: 'uint8' }], stateMutability: 'view' },
+  { type: 'function', name: 'totalSupply', inputs: [], outputs: [{ type: 'uint256' }], stateMutability: 'view' },
 ] as const;
