@@ -3,6 +3,7 @@ import { CHAINS } from './chains.js';
 import { ChainMonitor } from './monitor.js';
 import { loadSeenAuctions, markAsSeen, hasSeen } from './storage.js';
 import { sendAuctionAlertWithRetry } from './discord.js';
+import { startBot } from './bot.js';
 
 const POLL_INTERVAL_MS = (Number(process.env.POLL_INTERVAL_SECONDS) || 30) * 1000;
 
@@ -15,6 +16,8 @@ async function main() {
   console.log(`Poll interval: ${POLL_INTERVAL_MS / 1000}s`);
   console.log(`Monitoring chains: ${Object.keys(CHAINS).join(', ')}`);
   console.log('');
+
+  startBot();
 
   const seenAuctions = loadSeenAuctions();
   console.log(`Loaded ${Object.keys(seenAuctions).length} previously seen auction(s)`);
