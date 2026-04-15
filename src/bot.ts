@@ -149,14 +149,17 @@ function buildEmbed(result: Awaited<ReturnType<typeof findAuction>> & {}, addres
   const { info, chainConfig } = result!;
   const explorer = chainConfig.blockExplorer;
 
-  // FDV = clearingPrice (Q96) * tokenTotalSupply / (2^96 * 10^currencyDecimals)
   const Q96 = 2n ** 96n;
+  const tDec = BigInt(info.tokenDecimals);
+  const cDec = BigInt(info.currencyDecimals);
+
+  // FDV = clearingPrice * erc20TotalSupply / Q96  (result in currency smallest unit)
   const fdvRaw = info.clearingPrice * info.tokenTotalSupply / Q96;
   const fdv = fmt(fdvRaw, info.currencyDecimals, 2);
 
-  // Bid concentrated at = clearingPrice (Q96) per token, adjusted for decimals
-  const pricePerToken = info.clearingPrice * BigInt(10 ** info.tokenDecimals) / Q96;
-  const bidAt = fmt(pricePerToken, info.currencyDecimals, 6);
+  // Price per whole token = clearingPrice * 10^tokenDecimals / Q96  (in currency smallest unit)
+  const pricePerToken = info.clearingPrice * (10n ** tDec) / Q96;
+  const bidAt = fmt(pricePerToken, info.currencyDecimals, 8);
 
   // Days left
   const blocksLeft = Math.max(0, Number(info.endBlock) - info.currentBlock);
@@ -169,16 +172,16 @@ function buildEmbed(result: Awaited<ReturnType<typeof findAuction>> & {}, addres
 
   return new EmbedBuilder()
     .setTitle(`$${info.symbol}`)
-    .setURL(`${UNISWAP_AUCTIONS_URL}`)
+    .setURL(UNISWAP_AUCTIONS_URL)
     .setColor(ORANGE)
     .addFields(
       { name: '⛓️ Chain', value: chainConfig.name, inline: true },
       { name: '📈 Current FDV', value: `${fdv} ${info.currencySymbol}`, inline: true },
-      { name: '💰 Committed Volume', value: `${fmt(info.currencyRaised, info.currencyDecimals, 2)} ${info.currencySymbol}`, inline: true },
-      { name: '🎯 Bid Concentrated At', value: `${bidAt} ${info.currencySymbol}`, inline: true },
+      { name: '💰 Committed Volume', value: `${fmt(info.currencyRaised, info.currencyDecimals, 4)} ${info.currencySymbol}`, inline: true },
+      { name: '🎯 Bid Concentrated At', value: `${bidAt} ${info.currencySymbol}/token`, inline: true },
       { name: '🪙 Auction Supply', value: `${fmt(info.auctionSupply, info.tokenDecimals, 0)} ${info.symbol}`, inline: true },
       { name: '📊 Total Supply', value: `${fmt(info.tokenTotalSupply, info.tokenDecimals, 0)} ${info.symbol}`, inline: true },
-      { name: '💧 Committed to LP', value: `${fmt(info.currencyRaised, info.currencyDecimals, 2)} ${info.currencySymbol}`, inline: true },
+      { name: '💧 Committed to LP', value: `${fmt(info.currencyRaised, info.currencyDecimals, 4)} ${info.currencySymbol}`, inline: true },
       { name: '⏳ Days Left', value: daysLeftStr, inline: true },
       { name: '📄 Contract', value: `[${address.slice(0, 6)}...${address.slice(-4)}](${explorer}/address/${address})`, inline: true },
     )
