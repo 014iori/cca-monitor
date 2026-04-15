@@ -2,8 +2,7 @@ import 'dotenv/config';
 import { CHAINS } from './chains.js';
 import { ChainMonitor } from './monitor.js';
 import { loadSeenAuctions, markAsSeen, hasSeen } from './storage.js';
-import { sendAuctionAlertWithRetry } from './discord.js';
-import { startBot } from './bot.js';
+import { startBot, sendAuctionAlertWithRetry } from './bot.js';
 
 const POLL_INTERVAL_MS = (Number(process.env.POLL_INTERVAL_SECONDS) || 30) * 1000;
 
