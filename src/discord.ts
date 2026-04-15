@@ -49,7 +49,7 @@ export async function sendAuctionAlert(auction: AuctionInfo): Promise<void> {
   const duration = estimateDuration(auction.startBlock, auction.endBlock, blockTime);
 
   const payload = {
-    content: `@everyone New Uniswap CCA Auction detected on **${chain?.name ?? auction.chain}**!`,
+    content: `New Uniswap CCA Auction detected on **${chain?.name ?? auction.chain}**!`,
     embeds: [
       {
         title: `🔔 New CCA Auction: $${auction.tokenSymbol} — ${auction.tokenName}`,
@@ -83,7 +83,7 @@ export async function sendAuctionAlert(auction: AuctionInfo): Promise<void> {
           },
           {
             name: '⏰ Duration',
-            value: `${duration} (blocks ${auction.startBlock.toString()} → ${auction.endBlock.toString()})`,
+            value: duration,
             inline: true,
           },
           {
@@ -92,18 +92,13 @@ export async function sendAuctionAlert(auction: AuctionInfo): Promise<void> {
             inline: true,
           },
           {
-            name: '📄 Auction Contract',
-            value: `[${auction.auctionAddress.slice(0, 10)}...](${auctionLink})`,
-            inline: true,
-          },
-          {
-            name: '🔍 Transaction',
-            value: `[${auction.txHash.slice(0, 10)}...](${txLink})`,
-            inline: true,
+            name: '🔗 Links',
+            value: `[View Auction](${UNISWAP_AUCTIONS_URL}) • [Contract](${auctionLink}) • [Tx](${txLink})`,
+            inline: false,
           },
         ],
         footer: {
-          text: 'Uniswap CCA Monitor • app.uniswap.org/explore/auctions',
+          text: 'Uniswap CCA Monitor',
         },
         timestamp: new Date(auction.timestamp * 1000).toISOString(),
       },
