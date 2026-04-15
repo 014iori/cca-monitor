@@ -1,10 +1,26 @@
-import { Client, GatewayIntentBits, Message, EmbedBuilder } from 'discord.js';
+import {
+  Client,
+  GatewayIntentBits,
+  EmbedBuilder,
+  REST,
+  Routes,
+  SlashCommandBuilder,
+  ChatInputCommandInteraction,
+} from 'discord.js';
 import { ethers } from 'ethers';
 import { CHAINS, CCA_FACTORY_ADDRESS, KNOWN_CURRENCIES } from './chains.js';
 import { ERC20_ABI, AUCTION_PARAMETERS_ABI_TYPES } from './abi.js';
 
 const AUCTION_CREATED_TOPIC = ethers.id('AuctionCreated(address,address,uint256,bytes)');
 const ORANGE = 0xff6b2c;
+
+const COMMAND = new SlashCommandBuilder()
+  .setName('auction')
+  .setDescription('Get info about a Uniswap CCA auction')
+  .addStringOption((opt) =>
+    opt.setName('address').setDescription('Auction contract address').setRequired(true),
+  )
+  .toJSON();
 
 export function startBot(): void {
   const token = process.env.DISCORD_BOT_TOKEN;
@@ -13,35 +29,42 @@ export function startBot(): void {
     return;
   }
 
-  const client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent,
-    ],
-  });
+  // Extract client ID from token (first segment, base64-decoded)
+  const clientId = Buffer.from(token.split('.')[0], 'base64').toString('utf-8');
+
+  const rest = new REST().setToken(token);
+
+  // Register slash command globally
+  rest
+    .put(Routes.applicationCommands(clientId), { body: [COMMAND] })
+    .then(() => console.log('[Bot] /auction slash command registered'))
+    .catch((err) => console.error('[Bot] Failed to register command:', err.message));
+
+  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
   client.once('ready', () => {
     console.log(`[Bot] Logged in as ${client.user?.tag}`);
   });
 
-  client.on('messageCreate', async (message: Message) => {
-    if (message.author.bot) return;
-    if (!message.content.startsWith('!auction ')) return;
+  client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
+    if (interaction.commandName !== 'auction') return;
 
-    const arg = message.content.slice('!auction '.length).trim();
-    if (!arg || !ethers.isAddress(arg)) {
-      await message.reply('Usage: `!auction <auction-address>`');
+    const raw = (interaction as ChatInputCommandInteraction).options.getString('address', true);
+
+    if (!ethers.isAddress(raw)) {
+      await interaction.reply({ content: '❌ Invalid address.', ephemeral: true });
       return;
     }
 
-    const address = ethers.getAddress(arg);
-    const searching = await message.reply(`🔍 Looking up \`${address}\`...`);
+    await interaction.deferReply();
+
+    const address = ethers.getAddress(raw);
 
     try {
       const result = await findAuction(address);
       if (!result) {
-        await searching.edit(`❌ No auction found for \`${address}\` on any monitored chain.`);
+        await interaction.editReply(`❌ No auction found for \`${address}\` on any monitored chain.`);
         return;
       }
 
@@ -69,10 +92,10 @@ export function startBot(): void {
         .setFooter({ text: 'Uniswap CCA Monitor' })
         .setTimestamp();
 
-      await searching.edit({ content: '', embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
     } catch (err) {
-      console.error('[Bot] Error handling !auction command:', err);
-      await searching.edit('❌ An error occurred while fetching auction data.');
+      console.error('[Bot] Error handling /auction command:', err);
+      await interaction.editReply('❌ An error occurred while fetching auction data.');
     }
   });
 
@@ -102,7 +125,9 @@ interface AuctionData {
   txHash: string;
 }
 
-async function findAuction(address: string): Promise<{ info: AuctionData; chainConfig: typeof CHAINS[string] } | null> {
+async function findAuction(
+  address: string,
+): Promise<{ info: AuctionData; chainConfig: (typeof CHAINS)[string] } | null> {
   for (const [, config] of Object.entries(CHAINS)) {
     const provider = new ethers.JsonRpcProvider(config.rpc);
 
@@ -119,22 +144,27 @@ async function findAuction(address: string): Promise<{ info: AuctionData; chainC
 
     for (let to = latest; to > latest - maxLookback; to -= chunkSize) {
       const from = Math.max(to - chunkSize + 1, 0);
-      const logs = await provider.getLogs({
-        address: CCA_FACTORY_ADDRESS,
-        topics: [
-          AUCTION_CREATED_TOPIC,
-          ethers.zeroPadValue(address.toLowerCase(), 32),
-        ],
-        fromBlock: '0x' + from.toString(16),
-        toBlock: '0x' + to.toString(16),
-      }).catch(() => []);
+      const logs = await provider
+        .getLogs({
+          address: CCA_FACTORY_ADDRESS,
+          topics: [AUCTION_CREATED_TOPIC, ethers.zeroPadValue(address.toLowerCase(), 32)],
+          fromBlock: '0x' + from.toString(16),
+          toBlock: '0x' + to.toString(16),
+        })
+        .catch(() => []);
 
       if (logs.length === 0) continue;
 
       const log = logs[0];
       const tokenAddress = ethers.getAddress('0x' + log.topics[2].slice(26));
-      const [amount, configData] = ethers.AbiCoder.defaultAbiCoder().decode(['uint256', 'bytes'], log.data);
-      const params = ethers.AbiCoder.defaultAbiCoder().decode([...AUCTION_PARAMETERS_ABI_TYPES], configData);
+      const [amount, configData] = ethers.AbiCoder.defaultAbiCoder().decode(
+        ['uint256', 'bytes'],
+        log.data,
+      );
+      const params = ethers.AbiCoder.defaultAbiCoder().decode(
+        [...AUCTION_PARAMETERS_ABI_TYPES],
+        configData,
+      );
 
       const currency: string = params[0];
       const startBlock: bigint = params[3];
