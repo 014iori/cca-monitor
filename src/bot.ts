@@ -35,11 +35,16 @@ export function startBot(): void {
   }
 
   const clientId = Buffer.from(token.split('.')[0], 'base64').toString('utf-8');
+  const guildId = process.env.DISCORD_GUILD_ID;
   const rest = new REST().setToken(token);
 
+  const route = guildId
+    ? Routes.applicationGuildCommands(clientId, guildId)
+    : Routes.applicationCommands(clientId);
+
   rest
-    .put(Routes.applicationCommands(clientId), { body: [COMMAND] })
-    .then(() => console.log('[Bot] /auction slash command registered'))
+    .put(route, { body: [COMMAND] })
+    .then(() => console.log(`[Bot] /auction registered (${guildId ? 'guild' : 'global'})`))
     .catch((err) => console.error('[Bot] Failed to register command:', err.message));
 
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
