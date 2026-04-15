@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test-webhook": "tsx src/test-webhook.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
