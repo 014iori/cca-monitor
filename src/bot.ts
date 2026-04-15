@@ -9,8 +9,8 @@ import {
   TextChannel,
 } from 'discord.js';
 import { ethers } from 'ethers';
-import { CHAINS, CCA_FACTORY_ADDRESS, KNOWN_CURRENCIES } from './chains.js';
-import { ERC20_ABI, AUCTION_PARAMETERS_ABI_TYPES } from './abi.js';
+import { CHAINS, KNOWN_CURRENCIES } from './chains.js';
+import { CCA_AUCTION_ABI, ERC20_ABI } from './abi.js';
 import { AuctionInfo } from './types.js';
 
 const AUCTION_CREATED_TOPIC = ethers.id('AuctionCreated(address,address,uint256,bytes)');
@@ -163,7 +163,7 @@ function buildEmbed(result: Awaited<ReturnType<typeof findAuction>> & {}, addres
       { name: '🎓 Graduation', value: `${fmt(info.requiredRaise, info.currencyDecimals, 2)} ${info.currencySymbol}`, inline: true },
       {
         name: '🔗 Links',
-        value: `[View Auction](${UNISWAP_AUCTIONS_URL}) • [Contract](${explorer}/address/${address}) • [Tx](${explorer}/tx/${info.txHash})`,
+        value: `[View Auction](${UNISWAP_AUCTIONS_URL}) • [Contract](${explorer}/address/${address})`,
         inline: false,
       },
     )
@@ -199,40 +199,34 @@ interface AuctionData {
   duration: string; txHash: string;
 }
 
+// Read auction data directly from the contract — no log scanning needed
 async function findAuction(
   address: string,
 ): Promise<{ info: AuctionData; chainConfig: (typeof CHAINS)[string] } | null> {
   for (const [, config] of Object.entries(CHAINS)) {
     const provider = new ethers.JsonRpcProvider(config.rpc);
+
+    // Check contract is deployed on this chain
     try {
       const code = await provider.getCode(address);
       if (code === '0x') continue;
     } catch { continue; }
 
-    const latest = await provider.getBlockNumber();
-    const chunkSize = config.maxBlocksPerQuery;
+    try {
+      const auction = new ethers.Contract(address, CCA_AUCTION_ABI, provider);
 
-    for (let to = latest; to > latest - 50000; to -= chunkSize) {
-      const from = Math.max(to - chunkSize + 1, 0);
-      const logs = await provider.getLogs({
-        address: CCA_FACTORY_ADDRESS,
-        topics: [AUCTION_CREATED_TOPIC, ethers.zeroPadValue(address.toLowerCase(), 32)],
-        fromBlock: '0x' + from.toString(16),
-        toBlock: '0x' + to.toString(16),
-      }).catch(() => []);
+      const [tokenAddress, currency, totalSupply, startBlock, endBlock, floorPrice, requiredRaise] =
+        await Promise.all([
+          auction.token().catch(() => null),
+          auction.currency().catch(() => ethers.ZeroAddress),
+          auction.totalSupply().catch(() => 0n),
+          auction.startBlock().catch(() => 0n),
+          auction.endBlock().catch(() => 0n),
+          auction.floorPrice().catch(() => 0n),
+          auction.requiredCurrencyRaised().catch(() => 0n),
+        ]);
 
-      if (logs.length === 0) continue;
-
-      const log = logs[0];
-      const tokenAddress = ethers.getAddress('0x' + log.topics[2].slice(26));
-      const [amount, configData] = ethers.AbiCoder.defaultAbiCoder().decode(['uint256', 'bytes'], log.data);
-      const params = ethers.AbiCoder.defaultAbiCoder().decode([...AUCTION_PARAMETERS_ABI_TYPES], configData);
-
-      const currency: string = params[0];
-      const startBlock: bigint = params[3];
-      const endBlock: bigint = params[4];
-      const floorPrice: bigint = params[8];
-      const requiredRaise: bigint = params[9];
+      if (!tokenAddress || !ethers.isAddress(tokenAddress)) continue;
 
       const token = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
       const [name, symbol, tokenDecimals] = await Promise.all([
@@ -241,7 +235,7 @@ async function findAuction(
         token.decimals().catch(() => 18),
       ]);
 
-      const isNative = currency === ethers.ZeroAddress;
+      const isNative = !currency || currency === ethers.ZeroAddress;
       let currencySymbol = 'ETH', currencyDecimals = 18;
       if (!isNative) {
         const known = KNOWN_CURRENCIES[currency.toLowerCase()];
@@ -262,10 +256,18 @@ async function findAuction(
       const duration = days > 0 ? (hours > 0 ? `~${days}d ${hours}h` : `~${days}d`) : `~${hours}h`;
 
       return {
-        info: { name, symbol, tokenAddress, tokenDecimals: Number(tokenDecimals), currencySymbol, currencyDecimals, amount, floorPrice, requiredRaise, duration, txHash: log.transactionHash },
+        info: {
+          name, symbol,
+          tokenAddress: ethers.getAddress(tokenAddress),
+          tokenDecimals: Number(tokenDecimals),
+          currencySymbol, currencyDecimals,
+          amount: totalSupply,
+          floorPrice, requiredRaise, duration,
+          txHash: '',
+        },
         chainConfig: config,
       };
-    }
+    } catch { continue; }
   }
   return null;
 }

@@ -55,6 +55,17 @@ export const AUCTION_PARAMETERS_ABI_TYPES = [
   'bytes',   // auctionStepsData
 ] as const;
 
+// View functions on the deployed CCA auction contract
+export const CCA_AUCTION_ABI = [
+  { type: 'function', name: 'token', inputs: [], outputs: [{ type: 'address' }], stateMutability: 'view' },
+  { type: 'function', name: 'currency', inputs: [], outputs: [{ type: 'address' }], stateMutability: 'view' },
+  { type: 'function', name: 'totalSupply', inputs: [], outputs: [{ type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'startBlock', inputs: [], outputs: [{ type: 'uint64' }], stateMutability: 'view' },
+  { type: 'function', name: 'endBlock', inputs: [], outputs: [{ type: 'uint64' }], stateMutability: 'view' },
+  { type: 'function', name: 'floorPrice', inputs: [], outputs: [{ type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'requiredCurrencyRaised', inputs: [], outputs: [{ type: 'uint128' }], stateMutability: 'view' },
+] as const;
+
 export const ERC20_ABI = [
   {
     type: 'function',
